@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
+import seaborn as sns
 
 COLUMN_NAMES_KEY = {
     "ts": "timestamp",
@@ -232,6 +233,75 @@ def calculate_self_sufficiency(df):
     # write to png
     plt.savefig(fp)
     
+def calculate_daily_correlations(df):
+    ''' evaluate the correlation between solar generation and gross demand '''
+    df['gross_demand'] = df['net_demand'] + df['solar']
+    # remove net_demand as it is not needed
+    df.drop(columns=['net_demand'], inplace=True)
+    # Group by day 
+    df = df.resample('D').sum()
+    # Add a month column to the DataFrame
+    df['month'] = df.index.month
+
+    # Initialize a dictionary to store correlations for each month
+    monthly_correlations = {}
+
+    # Month names for labeling
+    month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+    # Calculate the correlation between solar generation and gross demand for each month
+    for month in range(1, 13):
+        monthly_df = df[df['month'] == month]
+        correlation = monthly_df['solar'].corr(monthly_df['gross_demand'])
+        monthly_correlations[month_names[month - 1]] = correlation
+        
+    # Plot the monthly correlations
+    monthly_correlations = pd.Series(monthly_correlations)
+    fig, axes = plt.subplots(1, 2, figsize=(16, 8), gridspec_kw={'width_ratios': [1, 7]})
+
+    monthly_correlations.plot(kind='bar', ax=axes[0])
+    axes[0].set_xlabel('Month')
+    axes[0].set_ylabel('Correlation')
+    axes[0].set_title('Correlation between Solar Generation and Gross Demand')
+
+    # Create a scatter plot for each month with each day as an observation
+    # Add a month column to the DataFrame
+    df['month'] = df.index.month
+
+    # Month names for labeling
+    df['month_name'] = df['month'].apply(lambda x: month_names[x - 1])
+
+    # Create a FacetGrid for the scatter plots
+    g = sns.FacetGrid(df, col='month_name', col_wrap=4, height=4, aspect=1.5)
+    g.map(sns.scatterplot, 'solar', 'gross_demand', alpha=0.5)
+
+    # Add a line of best fit to each scatter plot
+    g.map_dataframe(sns.regplot, x='solar', y='gross_demand', scatter=False, truncate=False, color='red')
+
+    # Set axis labels and titles
+    g.set_titles('{col_name}')
+    g.set_xlabels('Solar Generation (kWh)')
+    g.set_ylabels('Gross Demand (kWh)')
+
+    # Save the FacetGrid plot to a temporary file
+    facet_grid_fp = 'monthly_corr_scatter_plot_facets.png'
+    g.savefig(facet_grid_fp)
+    plt.close()
+
+    # Load the FacetGrid plot and add it to the second subplot
+    facet_grid_img = plt.imread(facet_grid_fp)
+    axes[1].imshow(facet_grid_img)
+    axes[1].axis('off')  # Hide the axes for the image
+
+    # Adjust the aspect ratio of the right-hand plot to be full height
+    axes[1].set_aspect(aspect='auto')
+
+    # Save the combined plot
+    combined_fp = 'combined_plot.png'
+    plt.savefig(combined_fp)
+    plt.close()
+
+    
 
 def clean_up(df):
     to_drop = ['ghi', 'dhi', 'dni', 'hot_water', 'other_demand', 'wind_speed', 'heat', 'temperature']
@@ -246,8 +316,7 @@ if __name__ == "__main__":
     df = estimate_other_demand(df)
     df = total_demand(df)
     df = clean_up(df)
-    calculate_self_sufficiency(df)
+    # calculate_self_sufficiency(df)
+    calculate_daily_correlations(df.copy())
 
-    df = rolling_df(df)
     # plot_xy(df)
-    print(df)

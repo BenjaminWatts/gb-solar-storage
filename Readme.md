@@ -75,6 +75,12 @@ python energy_analysis.py
 - **Demand Profiles**: Adjust `HEAT_LOSS_KW_DEG_C`, `HOT_WATER_USAGE`, and `OTHER_ELECTRICITY_USAGE_DAY` to simulate different household demand patterns.
 - **EV Charging**: Change the vehicle's annual mileage (`VEHICLE_ANNUAL_MILEAGE`) or charging hours in `estimate_other_demand` to customise EV demand.
 
+4. **Correlation Analysis**
+
+Looking for patterns in correlation between daily solar and gross_demand.
+
+
+
 ## Example Output
 
 The script produces a plot of daily self-sufficiency throughout the year, with vertical lines indicating key dates (e.g. April 10, May 31, August 10), and a dashed horizontal line representing the average self-sufficiency. Here's an example output:
