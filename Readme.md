@@ -77,7 +77,15 @@ python energy_analysis.py
 
 4. **Correlation Analysis**
 
-Looking for patterns in correlation between daily solar and gross_demand.
+Looking for patterns in correlation between daily solar and gross_demand. As analysed in the function `calculate_daily_correlations`:
+
+![Combined Plot](combined_plot.png)
+
+1. For the warmer months Mar-Oct, the energy consumption of the house is pretty constant day to day (it doesn't need much heating). However, when it is sunnier the house does use less energy. This is likely because such days are likely to be warm and most houses also warm up a bit in the sunshine (called solar gain). Conversely, if we do get a particularly windy/wet spell in the Mar-Oct months that tends to make it colder. There's also much greater variation in solar variation day to day in the summer months (a cloudy/rainy day can have very little generation), and much less variation in energy consumption (there is never too much heating and most electricity demand is for non-heating uses like charging the EV).
+
+
+
+2. For the harsher winter months Nov-Feb, the reverse is true. Energy consumption is much more variable (because some days are much colder than others), and higher in general. But sunnier winter days are also the days when the house consumes more energy. Why? Well winter days, even with with lots of sunshine rarely have enough sun to warm a house/air up, and they tend to coincide with high pressure, frosty nights. Another nice bonus is that solar panels are up to 10% more efficient at 0C than 20C, because they're not overheating.
 
 
 
