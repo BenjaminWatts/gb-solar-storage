@@ -139,6 +139,7 @@ def estimate_heat_demand(df, indoor_temp=INDOOR_TEMPERATURE, heat_loss_coeff=HEA
     electricity_demand[outdoor_temp > 16] = 0
 
     df['heat'] = electricity_demand
+    df['cop'] = cop
     
     return df
 
@@ -190,7 +191,81 @@ def plot_xy(df):
     ''' plot solar x and net_demand y'''
     df.plot(x='solar', y='net_demand', kind='scatter')
     plt.show()
+
+
+def calculate_air_and_solar_energy_contribution(df):
+    """
+    Calculate the contribution of solar and air energy to total energy usage.
     
+    This includes energy that is extracted from thin air by the heat pump 
+    and the energy provided by solar panels. Plots both the old and new 
+    self-sufficiency values.
+    
+    Parameters:
+    df (pd.DataFrame): DataFrame containing time series data with columns 
+                       'solar', 'heat', and 'cop' (coefficient of performance).
+    
+    Returns:
+    pd.DataFrame: Updated DataFrame with columns for the energy contribution 
+                  from solar and air, and a graph showing self-sufficiency.
+    """
+    # Calculate the energy from thin air (based on heat demand and COP)
+    df['electricity_for_heat'] = df['heat'] / df['cop']
+    df['energy_from_air'] = df['heat'] - df['electricity_for_heat']
+    
+    # Ensure no negative values
+    df['energy_from_air'][df['energy_from_air'] < 0] = 0
+
+    # Combine solar energy and energy from air
+    df['total_contribution'] = df['solar'] + df['energy_from_air']
+
+    # Calculate daily self-sufficiency based on combined solar and air contribution
+    df['day_of_year'] = df.index.dayofyear
+    daily_contribution = df.groupby('day_of_year')['total_contribution'].sum()
+    daily_net_demand = df.groupby('day_of_year')['net_demand'].sum()
+
+    # New self-sufficiency (solar + air energy)
+    daily_self_sufficiency = (daily_contribution / daily_net_demand) * 100
+    daily_self_sufficiency = daily_self_sufficiency.clip(upper=100)
+
+    # Calculate original self-sufficiency (solar-only, no air contribution)
+    daily_solar_only = df.groupby('day_of_year')['solar'].sum()
+    daily_self_sufficiency_solar_only = (daily_solar_only / daily_net_demand) * 100
+    daily_self_sufficiency_solar_only = daily_self_sufficiency_solar_only.clip(upper=100)
+
+    # Plot both self-sufficiency curves
+    plt.figure()
+    plt.plot(daily_self_sufficiency.index, daily_self_sufficiency, label='With Air Contribution', color='blue')
+    plt.plot(daily_self_sufficiency_solar_only.index, daily_self_sufficiency_solar_only, linestyle='dotted', label='Solar Only', color='red')
+    
+    plt.xlabel('Day of the year')
+    plt.ylabel('Self-sufficiency (%)')
+    plt.title('Self-sufficiency with Solar and Air Energy Contribution')
+
+    # Add key vertical lines for important months
+    plt.axvline(x=90, color='green', linestyle='--', label='April 1')
+    plt.axvline(x=121, color='yellow', linestyle='--', label='May 1')
+    plt.axvline(x=212, color='orange', linestyle='--', label='August 1')
+    plt.axvline(x=243, color='blue', linestyle='--', label='Sep 1')
+
+    # Add horizontal line showing average self-sufficiency (with air)
+    average_self_sufficiency = daily_self_sufficiency.mean()
+    plt.axhline(y=average_self_sufficiency, color='grey', linestyle='--', label='Average self-sufficiency')
+
+    # Set ylim to 0 to 100
+    plt.ylim(0, 100)
+    
+    plt.legend()
+    
+    # Save the new plot as a PNG
+    output_fp = 'self_sufficiency_air_and_solar_with_old.png'
+    plt.savefig(output_fp)
+    
+    # calculate the mean self-sufficiency and print to console
+    print(f"Mean self-sufficiency with air contribution: {daily_self_sufficiency.mean():.2f}%")
+    print(f"Mean self-sufficiency with solar only: {daily_self_sufficiency_solar_only.mean():.2f}%")
+
+    return df
 
 def calculate_self_sufficiency(df):
     """
@@ -301,7 +376,51 @@ def calculate_daily_correlations(df):
     plt.savefig(combined_fp)
     plt.close()
 
+
+def calculate_solar_heatpump_power(df: pd.DataFrame):
+    """
+    Identify in which calendar months solar makes a significant contribution to heat demand.
+    The solar contribution is calculated as the proportion of solar power used directly to meet heat demand.
+    """
+    # Calculate total heat demand (heat + hot water)
+    df['total_heat_demand'] = df['heat'] + df['hot_water']
+
+    # Determine the solar contribution to hot water first
+    df['solar_contribution_hot_water'] = df[['solar', 'hot_water']].min(axis=1)
+
+    # Calculate the remaining solar power after meeting hot water demand
+    df['remaining_solar'] = df['solar'] - df['solar_contribution_hot_water']
+
+    # Determine the solar contribution to heating from the remaining solar power
+    df['solar_contribution_heat'] = df[['remaining_solar', 'heat']].min(axis=1)
     
+    # Drop the temporary 'remaining_solar' column
+    df.drop(columns=['remaining_solar'], inplace=True)
+    df['month'] = df.index.month
+    monthly_df = df[['heat', 'hot_water', 'solar_contribution_heat', 'solar_contribution_hot_water', 'month']].groupby('month').mean()
+    
+    monthly_df['solar_fraction_heat'] = monthly_df['solar_contribution_heat'] / monthly_df['heat'] * 100
+    # set solar_fraction_heat to 0 for June to Sept - when minimal heat is needed
+    monthly_df.loc[6:9, 'solar_fraction_heat'] = 0
+    
+    monthly_df['solar_fraction_hot_water'] = monthly_df['solar_contribution_hot_water'] / monthly_df['hot_water'] * 100
+    
+    import pdb; pdb.set_trace()
+   
+    # Plot the solar contribution to heat demand
+    plt.figure(figsize=(12, 6))
+    monthly_df[['solar_fraction_hot_water', 'solar_fraction_heat']].plot(kind='bar', color=['orange', 'skyblue'], title='Monthly Solar Contribution to Hot Water and Heat Demand')
+    plt.ylabel('Solar Contribution (%)')
+    plt.xlabel('Month')
+    plt.xticks(ticks=range(12), labels=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], rotation=45)
+    plt.legend(['Hot Water', 'Space Heating'])
+    plt.tight_layout()
+    
+    # write to png
+    fp = 'monthly_solar_contribution.png'
+    plt.savefig(fp)
+    
+    return monthly_df
 
 def clean_up(df):
     to_drop = ['ghi', 'dhi', 'dni', 'hot_water', 'other_demand', 'wind_speed', 'heat', 'temperature']
@@ -315,8 +434,8 @@ if __name__ == "__main__":
     df = estimate_hot_water_demand(df)
     df = estimate_other_demand(df)
     df = total_demand(df)
-    df = clean_up(df)
-    # calculate_self_sufficiency(df)
-    calculate_daily_correlations(df.copy())
-
-    # plot_xy(df)
+    
+    # calculate_solar_heatpump_power(df.copy())
+    # calculate_daily_correlations(df.copy())
+    
+    calculate_air_and_solar_energy_contribution(df.copy())
