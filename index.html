@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Energy Demand Calculator</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.4.1/semantic.min.css">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+    <div class="ui container">
+        <h1 class="ui header">Energy Demand Calculator</h1>
+
+        <p>This tool helps us understand the energy dynamics of a home and make informed decisions about energy consumption.</p>
+        <p>Observe that hot water usage sets a baseline for heat demand</p>
+
+        <h2>Instructions</h2>
+
+        <p>Input values for solar capacity, solar efficiency, indoor temperature, heat loss coefficient, and daily hot water usage.</p>
+        <p>Click the "Calculate" button to see how solar output compares to heating needs in the plotted graph.</p>
+        
+        <p>By adjusting the solar capacity or indoor temperature, the curves which reflect energy demand and generation will update.</p>
+        
+        <div id="plot" style="height: 400px; margin-bottom: 20px;"></div>
+
+        <div class="ui message">
+            <div class="header">Note:</div>
+            <p>Use the zoom tools in the graph to explore the data in detail.</p>
+        </div>
+
+        <form id="dataForm" class="ui form">
+            <div class="field">
+                <label for="solarCapacity">Solar Capacity (kW):</label>
+                <input type="number" id="solarCapacity" value="8" required>
+            </div>
+
+            <div class="field">
+                <label for="solarEfficiency">Solar Efficiency (%):</label>
+                <input type="number" id="solarEfficiency" value="22" required>
+            </div>
+
+            <div class="field">
+                <label for="indoorTemp">Indoor Temperature (°C):</label>
+                <input type="number" id="indoorTemp" value="20" required>
+            </div>
+
+            <div class="field">
+                <label for="heatLossCoeff">Heat Loss Coefficient (kW/°C):</label>
+                <input type="number" id="heatLossCoeff" value="0.10" required>
+            </div>
+
+            <div class="field">
+                <label for="hotWaterUsage">Hot Water Usage (litres/day):</label>
+                <input type="number" id="hotWaterUsage" value="100" required>
+            </div>
+
+            <button type="button" class="ui button primary" onclick="processData()">Calculate</button>
+        </form>
+    </div>
+
+    <script>
+        let plotData = []; // Array to hold the plot data
+        let plotInitialized = false; // Flag to check if the plot has been initialized
+
+        async function fetchWeatherData() {
+            const response = await fetch('weekly_weather_history.json');
+            const data = await response.json();
+            return data;
+        }
+        
+        async function processData() {
+            // Get form values
+            const solarCapacity = parseFloat(document.getElementById('solarCapacity').value);
+            const solarEfficiency = parseFloat(document.getElementById('solarEfficiency').value) / 100; // convert to decimal
+            const indoorTemp = parseFloat(document.getElementById('indoorTemp').value);
+            const heatLossCoeff = parseFloat(document.getElementById('heatLossCoeff').value);
+            const hotWaterUsage = parseFloat(document.getElementById('hotWaterUsage').value);
+        
+            // Fetch the weekly weather data
+            const weatherData = await fetchWeatherData();
+            
+            // Process the data
+            const df = weatherData.map(d => {
+                const solarOutput = estimateSolarPower(d.ghi, solarCapacity, solarEfficiency);
+                const heatDemand = estimateHeatDemand(d.temperature, indoorTemp, heatLossCoeff, hotWaterUsage);
+                return { timestamp: d.timestamp, solar: solarOutput, heat: heatDemand };
+            });
+
+            updatePlot(df);
+        }
+
+        function estimateSolarPower(ghi, capacity, efficiency) {
+            const systemLossFactor = 0.95;
+            return (capacity * (ghi / 1000) * efficiency * systemLossFactor);
+        }
+
+        function estimateHeatDemand(outdoorTemp, indoorTemp, heatLossCoeff, hotWaterUsage) {
+            const tempDiff = indoorTemp - outdoorTemp;
+            // Calculate base heat demand
+            let baseHeatDemand = tempDiff > 0 ? heatLossCoeff * tempDiff : 0; // No heating needed if tempDiff is negative
+        
+            // Convert hot water usage from litres to kWh
+            const hotWaterKwhPerLitre = 0.035; // This value can be adjusted if needed
+            const hotWaterDemand = hotWaterUsage * hotWaterKwhPerLitre; // kWh
+        
+            // Total heat demand now includes hot water demand
+            return baseHeatDemand + hotWaterDemand;
+        }
+
+
+        function initializePlot(df) {
+            const solarValues = df.map(d => d.solar);
+            const heatValues = df.map(d => d.heat);
+            const timestamps = df.map(d => new Date(d.timestamp));
+
+            // Initialize plot data
+            plotData = [
+                {
+                    x: timestamps,
+                    y: solarValues,
+                    mode: 'lines+markers',
+                    name: 'Solar Output',
+                },
+                {
+                    x: timestamps,
+                    y: heatValues,
+                    mode: 'lines+markers',
+                    name: 'Heat Demand',
+                }
+            ];
+
+            const layout = {
+                title: 'Solar Output vs Heat Demand',
+                xaxis: { title: 'Time' },
+                yaxis: { title: 'kW' },
+            };
+
+            Plotly.newPlot('plot', plotData, layout);
+            plotInitialized = true; // Set the flag to true after initialization
+        }
+
+        function updatePlot(df) {
+            const solarValues = df.map(d => d.solar);
+            const heatValues = df.map(d => d.heat);
+            const timestamps = df.map(d => new Date(d.timestamp));
+
+            if (plotInitialized) {
+                // Update the existing data object
+                Plotly.update('plot', {
+                    x: [timestamps, timestamps],
+                    y: [solarValues, heatValues]
+                });
+            } else {
+                // Initialize the plot if it hasn't been done yet
+                initializePlot(df);
+            }
+        }
+
+        // entrypoint
+        processData();
+    </script>
+</body>
+</html>
