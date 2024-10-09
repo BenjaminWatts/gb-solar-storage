@@ -63,7 +63,7 @@
         let plotInitialized = false; // Flag to check if the plot has been initialized
 
         async function fetchWeatherData() {
-            const response = await fetch('/weekly_weather_history.json');
+            const response = await fetch('weekly_weather_history.json');
             const data = await response.json();
             return data;
         }
