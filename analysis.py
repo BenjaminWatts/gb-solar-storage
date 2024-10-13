@@ -427,6 +427,105 @@ def clean_up(df):
     df.drop(columns=to_drop, inplace=True)
     return df
 
+def calculate_wind_air_and_solar_energy_contribution(df, wind_turbine_capacity_kw=1.2, wind_efficiency=0.3, cut_in_speed=3, rated_speed=12, cut_out_speed=25):
+    """
+    Calculate the contribution of wind, solar, and air energy to total energy usage.
+    
+    This includes energy that is extracted from thin air by the heat pump, 
+    energy provided by solar panels, and the energy contribution from a wind turbine.
+    
+    Parameters:
+    df (pd.DataFrame): DataFrame containing time series data with columns 
+                       'solar', 'heat', 'cop' (coefficient of performance), and 'wind_speed'.
+    wind_turbine_capacity_kw (float): Maximum capacity of the wind turbine in kW (default is 1.2 kW for Rutland 1200).
+    wind_efficiency (float): Efficiency factor of the wind turbine (default is 0.3).
+    
+    Returns:
+    pd.DataFrame: Updated DataFrame with columns for the energy contribution 
+                  from wind, solar, and air, and a graph showing self-sufficiency.
+    """
+    # Calculate the energy from thin air (based on heat demand and COP)
+    df['electricity_for_heat'] = df['heat'] / df['cop']
+    df['energy_from_air'] = df['heat'] - df['electricity_for_heat']
+    
+    # Ensure no negative values for energy from air
+    df['energy_from_air'][df['energy_from_air'] < 0] = 0
+
+    
+    df['wind_speed_m_s'] = df['wind_speed'] / 3.6
+    
+    # Wind turbine power curve: cut-in, rated, and cut-out speeds
+    wind_speed_m_s = df['wind_speed_m_s']
+    
+    # Calculate wind power using a realistic turbine power curve
+    df['wind_power'] = 0  # Initialize with zero
+    
+    # Wind turbine produces power between cut-in and cut-out speeds
+    df.loc[(wind_speed_m_s >= cut_in_speed) & (wind_speed_m_s < rated_speed), 'wind_power'] = (
+        ((wind_speed_m_s[(wind_speed_m_s >= cut_in_speed) & (wind_speed_m_s < rated_speed)] - cut_in_speed) / (rated_speed - cut_in_speed)) * wind_turbine_capacity_kw
+    )
+    
+    # Wind turbine produces rated power at or above rated speed but below cut-out speed
+    df.loc[(wind_speed_m_s >= rated_speed) & (wind_speed_m_s <= cut_out_speed), 'wind_power'] = wind_turbine_capacity_kw
+    
+    # Ensure the turbine stops producing power above the cut-out speed
+    df.loc[wind_speed_m_s > cut_out_speed, 'wind_power'] = 0
+
+    
+
+    # Combine wind, solar, and energy from air
+    df['total_contribution'] = df['solar'] + df['wind_power'] + df['energy_from_air']
+    
+
+    # Calculate daily self-sufficiency based on combined wind, solar, and air contribution
+    df['day_of_year'] = df.index.dayofyear
+    daily_contribution = df.groupby('day_of_year')['total_contribution'].sum()
+    daily_net_demand = df.groupby('day_of_year')['net_demand'].sum()
+
+    # New self-sufficiency (wind + solar + air energy)
+    daily_self_sufficiency = (daily_contribution / daily_net_demand) * 100
+    daily_self_sufficiency = daily_self_sufficiency.clip(upper=100)
+
+    # Calculate original self-sufficiency (solar-only, no wind or air contribution)
+    daily_solar_only = df.groupby('day_of_year')['solar'].sum()
+    daily_self_sufficiency_solar_only = (daily_solar_only / daily_net_demand) * 100
+    daily_self_sufficiency_solar_only = daily_self_sufficiency_solar_only.clip(upper=100)
+
+    # Plot both self-sufficiency curves
+    plt.figure()
+    plt.plot(daily_self_sufficiency.index, daily_self_sufficiency, label='With Wind and Air Contribution', color='blue')
+    plt.plot(daily_self_sufficiency_solar_only.index, daily_self_sufficiency_solar_only, linestyle='dotted', label='Solar Only', color='red')
+    
+    plt.xlabel('Day of the year')
+    plt.ylabel('Self-sufficiency (%)')
+    plt.title('Self-sufficiency with Wind/Solar Hybrid')
+
+    # Add key vertical lines for important months
+    plt.axvline(x=90, color='green', linestyle='--', label='April 1')
+    plt.axvline(x=121, color='yellow', linestyle='--', label='May 1')
+    plt.axvline(x=212, color='orange', linestyle='--', label='August 1')
+    plt.axvline(x=243, color='blue', linestyle='--', label='Sep 1')
+
+    # Add horizontal line showing average self-sufficiency (with wind and air)
+    average_self_sufficiency = daily_self_sufficiency.mean()
+    plt.axhline(y=average_self_sufficiency, color='grey', linestyle='--', label='Average self-sufficiency')
+
+    # Set ylim to 0 to 100
+    plt.ylim(0, 100)
+    
+    plt.legend()
+    
+    # Save the new plot as a PNG
+    output_fp = 'self_sufficiency_wind_air_and_solar.png'
+    plt.savefig(output_fp)
+    
+    # Calculate and print mean self-sufficiency values
+    print(f"Mean self-sufficiency with wind and air contribution: {daily_self_sufficiency.mean():.2f}%")
+    print(f"Mean self-sufficiency with solar only: {daily_self_sufficiency_solar_only.mean():.2f}%")
+
+    return df
+
+
 if __name__ == "__main__":
     df = open_data()
     df = estimate_solar_power(df)
@@ -438,4 +537,6 @@ if __name__ == "__main__":
     # calculate_solar_heatpump_power(df.copy())
     # calculate_daily_correlations(df.copy())
     
-    calculate_air_and_solar_energy_contribution(df.copy())
+    # calculate_air_and_solar_energy_contribution(df.copy())
+    
+    calculate_wind_air_and_solar_energy_contribution(df.copy())
